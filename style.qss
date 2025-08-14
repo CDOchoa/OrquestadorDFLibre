@@ -1,0 +1,60 @@
+/* style.qss */
+
+QMainWindow {
+    background-color: #f0f4f7;
+}
+
+QToolBar {
+    background-color: #e3e7ec;
+    border: none;
+    padding: 5px;
+    spacing: 5px;
+}
+
+QToolButton {
+    background-color: #e3e7ec;
+    border: 1px solid #c9d2d9;
+    border-radius: 4px;
+    padding: 5px;
+}
+
+QToolButton:hover {
+    background-color: #d1d5db;
+}
+
+QToolButton:pressed {
+    background-color: #aeb2b7;
+}
+
+QTextEdit, QTreeView {
+    background-color: #ffffff;
+    border: 1px solid #c9d2d9;
+    border-radius: 6px;
+    padding: 5px;
+}
+
+QTreeView {
+    show-decoration-selected: 1;
+}
+
+QTreeView::item:selected {
+    background-color: #c9d2d9;
+}
+
+QDockWidget {
+    border: 1px solid #c9d2d9;
+    titlebar-close-icon: url(close.png); /* Replace with your icon path */
+}
+
+QDockWidget::title {
+    text-align: center;
+    background: #e3e7ec;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+QGraphicsView {
+    background-color: #e3e7ec;
+    border: 1px solid #c9d2d9;
+    border-radius: 6px;
+}
