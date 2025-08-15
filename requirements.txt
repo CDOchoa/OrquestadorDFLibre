@@ -1,3 +1,4 @@
-PySide6>=6.2
-networkx>=3.0
-matplotlib>=3.4
+pandas
+networkx
+python-dotenv
+pyqt5

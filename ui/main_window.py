@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QGraphicsPolygonItem, QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsTextItem, QGraphicsLineItem, QGraphicsObject, QDialog,
     QStatusBar, QFormLayout, QComboBox, QTimeEdit, QDialogButtonBox,
-    QListWidgetItem, QPlainTextEdit
+    QListWidgetItem, QPlainTextEdit, QAbstractItemView
 )
 from PySide6.QtCore import (
     Qt, QPointF, Signal, Slot, QDir, QPropertyAnimation,
@@ -29,16 +29,16 @@ from PySide6.QtCore import (
     QObject, QRegularExpression, QTime, QDate, QSize, QRect, QDateTime
 )
 
-# Importaciones de tu proyecto
+# Importaciones específicas del proyecto
 from shared.registry import discover_scripts
 from core.script_runner import ScriptRunner
 from core.state_manager import StateManager
 
 
-# --- Mejoras en la UI: Resaltador de Sintaxis ---
+# --- Mejoras de UI: Resaltador de Sintaxis ---
 
 class PythonHighlighter(QSyntaxHighlighter):
-    """Resaltador de sintaxis para Python."""
+    """Resaltador de sintaxis para código Python."""
     def __init__(self, parent: QTextDocument):
         super().__init__(parent)
         self._rules = []
@@ -75,7 +75,7 @@ class PythonHighlighter(QSyntaxHighlighter):
         self._rules.append((r"#\s*ORCHESTRATOR\.(PRODUCE|REQUIRES):.*", self._formats["orchestrator_marker"]))
 
     def create_format(self, color: QColor, weight=QFont.Normal, style=QFont.StyleNormal):
-        """Helper para crear QTextCharFormat, ahora con argumentos separados para peso y estilo."""
+        """Ayudante para crear un QTextCharFormat."""
         text_format = QTextCharFormat()
         text_format.setForeground(color)
         text_format.setFontWeight(weight)
@@ -91,13 +91,13 @@ class PythonHighlighter(QSyntaxHighlighter):
                 match = it.next()
                 self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
         
-        # Resaltado de funciones
+        # Resaltado de nombres de funciones
         it = self.function_regex.globalMatch(text)
         while it.hasNext():
             match = it.next()
             self.setFormat(match.capturedStart(), match.capturedLength(), self._formats["function"])
 
-# --- Editor de código avanzado con numeración de líneas ---
+# --- Editor de Código Avanzado con Números de Línea ---
 
 class LineNumberArea(QWidget):
     """Widget que muestra los números de línea."""
@@ -112,7 +112,7 @@ class LineNumberArea(QWidget):
         self.code_editor.lineNumberAreaPaintEvent(event)
 
 class CodeEditor(QPlainTextEdit):
-    """Editor con numeración de líneas y resaltado."""
+    """Editor con números de línea y resaltado."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.lineNumberArea = LineNumberArea(self)
@@ -144,7 +144,7 @@ class CodeEditor(QPlainTextEdit):
         super().resizeEvent(event)
         cr = self.contentsRect()
         self.lineNumberArea.setGeometry(QRect(cr.left(), cr.top(),
-                                              self.lineNumberAreaWidth(), cr.height()))
+                                               self.lineNumberAreaWidth(), cr.height()))
 
     def lineNumberAreaPaintEvent(self, event):
         painter = QPainter(self.lineNumberArea)
@@ -168,7 +168,6 @@ class CodeEditor(QPlainTextEdit):
 
     def highlightCurrentLine(self):
         extra = []
-        # La corrección clave: Usar QTextEdit.ExtraSelection
         sel = QTextEdit.ExtraSelection()
         sel.format.setBackground(QColor("#eaeaea"))
         sel.format.setProperty(QTextFormat.FullWidthSelection, True)
@@ -178,14 +177,14 @@ class CodeEditor(QPlainTextEdit):
         self.setExtraSelections(extra)
 
 
-# --- Clases de Visualización para el Grafo (NetworkX + QGraphics) ---
+# --- Clases de Visualización de Grafo (NetworkX + QGraphics) ---
 
 class NodeItem(QGraphicsEllipseItem):
     """
     Representa un nodo (script) en el grafo de dependencias con un indicador de estado.
     """
     STATE_COLORS = {
-        'idle': QColor("#a3c1da"), # Azul-gris claro
+        'idle': QColor("#a3c1da"), # Gris-azul claro
         'running': QColor("yellow"),
         'partial_finished': QColor("#ff8c00"), # Naranja
         'finished': QColor("green"),
@@ -212,7 +211,7 @@ class NodeItem(QGraphicsEllipseItem):
         self.setup_layout(width, height)
 
     def setup_layout(self, width, height):
-        """Configura la posición del texto para que esté centrado."""
+        """Centra el texto dentro de la elipse."""
         tw = self.text.boundingRect().width()
         th = self.text.boundingRect().height()
         self.text.setPos(self.rect().x() + (width - tw) / 2, self.rect().y() + (height - th) / 2)
@@ -224,14 +223,14 @@ class NodeItem(QGraphicsEllipseItem):
         self.update()
 
     def itemChange(self, change, value):
-        """Mantiene las aristas conectadas al nodo cuando este se mueve."""
+        """Mantiene los bordes conectados al nodo cuando se mueve."""
         if change == QGraphicsItem.ItemPositionHasChanged:
             for edge in self.edges:
                 edge.update_position()
         return super().itemChange(change, value)
     
     def mouseDoubleClickEvent(self, event):
-        """Muestra los detalles del script al hacer doble clic."""
+        """Muestra detalles del script al hacer doble clic."""
         main_window = self.scene().views()[0].main_window
         main_window.show_script_details(self.path)
         super().mouseDoubleClickEvent(event)
@@ -265,7 +264,7 @@ class NodeItem(QGraphicsEllipseItem):
 
 class EdgeItem(QGraphicsLineItem):
     """
-    Representa una arista de dependencia entre dos nodos, con una flecha.
+    Representa una arista de dependencia entre dos nodos, con una punta de flecha.
     """
     def __init__(self, source_item: NodeItem, dest_item: NodeItem):
         super().__init__()
@@ -301,7 +300,6 @@ class EdgeItem(QGraphicsLineItem):
         if line_length > 0:
             unit_vector = line_vector / line_length
             
-            # Offset para que la línea y la flecha no se superpongan con los nodos.
             source_offset = source_rect.width() / 2
             dest_offset = dest_rect.width() / 2
             
@@ -310,7 +308,6 @@ class EdgeItem(QGraphicsLineItem):
             
             self.setLine(start_point.x(), start_point.y(), end_point.x(), end_point.y())
             
-            # Calcular y dibujar la flecha
             normal_vector = QPointF(-unit_vector.y(), unit_vector.x())
             arrow_size = 15
             
@@ -325,7 +322,7 @@ class EdgeItem(QGraphicsLineItem):
 
 class GraphView(QGraphicsView):
     """
-    Widget principal que muestra el grafo de scripts.
+    Widget principal para mostrar el grafo de dependencias de scripts.
     """
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
@@ -343,14 +340,14 @@ class GraphView(QGraphicsView):
         self.edges.clear()
 
     def add_node(self, path, label, pos):
-        """Añade un nodo visual al grafo."""
+        """Agrega un nodo visual al grafo."""
         node = NodeItem(pos.x(), pos.y(), 140, 60, label, path)
         self.scene.addItem(node)
         self.nodes[path] = node
         return node
 
     def add_edge(self, source_path, dest_path):
-        """Añade una arista de dependencia entre dos nodos."""
+        """Agrega una arista de dependencia entre dos nodos."""
         s = self.nodes.get(source_path)
         d = self.nodes.get(dest_path)
         if s and d:
@@ -395,7 +392,6 @@ class SchedulerDialog(QDialog):
         form_layout.addRow("Cada (horas):", self.hours_interval_input)
         self.hours_interval_input.setVisible(False)
 
-        # Campo para el intervalo de reintento
         self.retry_interval_input = QLineEdit()
         self.retry_interval_input.setPlaceholderText("Ej: 30 (minutos)")
         self.retry_interval_input.setValidator(QIntValidator(1, 1440))
@@ -428,10 +424,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Orquestador de Scripts - Prototipo")
         self.resize(1200, 800)
 
-        self.default_scripts_dir = str(Path(os.getcwd()))
+        # Directorio inicial de proyectos
+        self.default_scripts_dir = str(Path(os.getcwd()) / "scripts")
+        self.project_roots = [self.default_scripts_dir]
         
-        # Al inicio, la lista de raíces de proyectos solo contiene el directorio de scripts de ejemplo
-        self.project_roots = [os.path.join(self.default_scripts_dir, "scripts")]
         self.registry = {}
         self.state_manager = StateManager(self.registry)
         self.runner = ScriptRunner()
@@ -446,50 +442,66 @@ class MainWindow(QMainWindow):
         self.create_menus_and_toolbars()
         self.connect_signals()
         
-        # La carga inicial ahora llama a la nueva función de refresco
-        self.refresh_project_views()
+        self.update_project_list()
+        self.refresh_all_scripts()
         
         self.load_scheduled_scripts()
         
         self.scheduler_timer = QTimer(self)
         self.scheduler_timer.timeout.connect(self.run_scheduled_scripts)
-        self.scheduler_timer.start(60000) # Revisa cada minuto
+        self.scheduler_timer.start(60000) # Verifica cada minuto
         
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("Listo.")
 
     def create_widgets(self):
-        """Crea y configura todos los widgets de la UI."""
+        """Crea y configura todos los widgets de la interfaz."""
         self.graph_view = GraphView(main_window=self)
         self.code_editor = CodeEditor()
         self.code_editor.setPlaceholderText("Selecciona un script para ver y editar su código.")
         self.highlighter = PythonHighlighter(self.code_editor.document())
         
-        # Configuración del explorador de proyectos
+        # Nueva estructura de UI para proyectos y exploración de archivos
+        self.project_list_widget = QListWidget()
+        self.project_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.project_list_widget.customContextMenuRequested.connect(self.on_project_list_context_menu)
+        
+        self.file_tree_view = QTreeView()
         self.file_model = QFileSystemModel()
-        self.file_model.setRootPath(self.default_scripts_dir)
-        
-        self.file_tree = QTreeView()
-        self.file_tree.setModel(self.file_model)
-        self.file_tree.setColumnHidden(1, True)
-        self.file_tree.setColumnHidden(2, True)
-        self.file_tree.setColumnHidden(3, True)
-        self.file_tree.setHeaderHidden(True)
-        self.file_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        
+        self.file_model.setFilter(QDir.NoDotAndDotDot | QDir.AllEntries)
+        self.file_tree_view.setModel(self.file_model)
+        self.file_tree_view.setColumnHidden(1, True)
+        self.file_tree_view.setColumnHidden(2, True)
+        self.file_tree_view.setColumnHidden(3, True)
+        self.file_tree_view.setHeaderHidden(True)
+        self.file_tree_view.setRootIsDecorated(False)
+        self.file_tree_view.setSelectionMode(QAbstractItemView.SingleSelection)
+
         self.variables_list = QListWidget()
         self.variables_list.setMinimumHeight(100)
         
-        left_dock_widget = QWidget()
-        left_dock_layout = QVBoxLayout(left_dock_widget)
-        left_dock_layout.addWidget(QLabel("<b>Explorador de Proyectos</b>"))
-        left_dock_layout.addWidget(self.file_tree)
-        left_dock_layout.addWidget(QLabel("<b>Variables Persistidas</b>"))
-        left_dock_layout.addWidget(self.variables_list)
+        project_dock_layout = QVBoxLayout()
+        project_dock_layout.addWidget(QLabel("<b>Proyectos</b>"))
+        project_dock_layout.addWidget(self.project_list_widget)
+        project_dock_layout.addWidget(QLabel("<b>Archivos</b>"))
+        project_dock_layout.addWidget(self.file_tree_view)
         
-        self.left_dock = QDockWidget("Proyecto y Variables", self)
+        left_dock_widget = QWidget()
+        left_dock_widget.setLayout(project_dock_layout)
+
+        self.left_dock = QDockWidget("Proyectos y Variables", self)
         self.left_dock.setWidget(left_dock_widget)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.left_dock)
+
+        # Dock de variables
+        variables_dock_widget = QWidget()
+        variables_dock_layout = QVBoxLayout(variables_dock_widget)
+        variables_dock_layout.addWidget(QLabel("<b>Variables Persistidas</b>"))
+        variables_dock_layout.addWidget(self.variables_list)
+        
+        self.variables_dock = QDockWidget("Variables", self)
+        self.variables_dock.setWidget(variables_dock_widget)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.variables_dock)
 
     def create_layouts(self):
         """Organiza los widgets en la ventana principal."""
@@ -500,12 +512,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_splitter)
 
     def create_menus_and_toolbars(self):
-        """Crea los menús y la barra de herramientas."""
+        """Crea los menús y barras de herramientas."""
         toolbar = QToolBar("Orquestador")
         self.addToolBar(toolbar)
         
-        refresh_action = QAction(QIcon.fromTheme("view-refresh"), "Recargar", self)
-        refresh_action.triggered.connect(self.refresh_project_views)
+        refresh_action = QAction(QIcon.fromTheme("view-refresh"), "Recargar Todo", self)
+        refresh_action.triggered.connect(self.refresh_all_scripts)
         
         self.run_action = QAction(QIcon.fromTheme("media-playback-start"), "Correr", self)
         self.run_action.triggered.connect(self.on_run_selected)
@@ -516,9 +528,6 @@ class MainWindow(QMainWindow):
         self.reset_state_action = QAction(QIcon.fromTheme("edit-clear"), "Reiniciar Estado", self)
         self.reset_state_action.triggered.connect(self.on_reset_state)
         
-        self.open_project_action = QAction(QIcon.fromTheme("document-open-folder"), "Abrir Proyecto", self)
-        self.open_project_action.triggered.connect(self.on_open_project)
-
         self.add_project_action = QAction(QIcon.fromTheme("list-add"), "Agregar Proyecto", self)
         self.add_project_action.triggered.connect(self.on_add_project)
 
@@ -526,16 +535,14 @@ class MainWindow(QMainWindow):
         self.schedule_action.triggered.connect(self.on_schedule_script_from_toolbar)
         
         self.python_path_input = QLineEdit()
-        self.python_path_input.setPlaceholderText("Ruta al ejecutable de Python (ej. C:/.../python.exe)")
+        self.python_path_input.setPlaceholderText("Ruta al ejecutable de Python")
         self.python_path_input.setText(self.runner.python_executable)
         self.python_path_input.textChanged.connect(self.on_python_path_changed)
         
         file_menu = self.menuBar().addMenu("Archivo")
-        file_menu.addAction(self.open_project_action)
         file_menu.addAction(self.add_project_action)
         file_menu.addAction(self.schedule_action)
 
-        toolbar.addAction(self.open_project_action)
         toolbar.addAction(self.add_project_action)
         toolbar.addAction(refresh_action)
         toolbar.addSeparator()
@@ -547,15 +554,16 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(QLabel("Entorno de Python:"))
         toolbar.addWidget(self.python_path_input)
 
-        # Menú de Ver para recuperar los paneles
         view_menu = self.menuBar().addMenu("Ver")
         view_menu.addAction(self.left_dock.toggleViewAction())
+        view_menu.addAction(self.variables_dock.toggleViewAction())
         
         self.update_toolbar_state()
         
     def connect_signals(self):
-        """Conecta las señales de los widgets a sus slots."""
-        self.file_tree.clicked.connect(self.on_file_tree_selection)
+        """Conecta las señales de los widgets con sus slots."""
+        self.project_list_widget.currentItemChanged.connect(self.on_project_selected)
+        self.file_tree_view.clicked.connect(self.on_file_tree_selection)
         self.variables_list.currentItemChanged.connect(self.on_variable_selection)
         self.graph_view.scene.selectionChanged.connect(self.on_graph_selection)
 
@@ -571,9 +579,7 @@ class MainWindow(QMainWindow):
             event.ignore()
 
     def build_dependency_graph(self):
-        """
-        Construye el grafo de dependencias de scripts usando NetworkX.
-        """
+        """Construye el grafo de dependencias de scripts usando NetworkX."""
         G = nx.DiGraph()
         for path, meta in self.registry.items():
             name = os.path.basename(path)
@@ -592,22 +598,9 @@ class MainWindow(QMainWindow):
                     G.add_edge(p_path, consumer_path, var=var)
         return G
     
-    def on_open_project(self):
-        """Abre un diálogo para seleccionar un directorio de proyecto y lo carga en una nueva ventana."""
-        dialog = QFileDialog(self)
-        dialog.setFileMode(QFileDialog.Directory)
-        dialog.setOption(QFileDialog.ShowDirsOnly)
-        
-        if dialog.exec():
-            selected_dir = dialog.selectedFiles()[0]
-            
-            # Limpia los proyectos actuales y establece el nuevo como único
-            self.project_roots = [selected_dir]
-            self.refresh_project_views()
-
     def on_add_project(self):
         """
-        Permite al usuario agregar una carpeta de proyecto al explorador actual.
+        Permite al usuario agregar una carpeta de proyecto a la lista de proyectos.
         """
         dialog = QFileDialog(self)
         dialog.setFileMode(QFileDialog.Directory)
@@ -617,51 +610,90 @@ class MainWindow(QMainWindow):
             selected_dir = dialog.selectedFiles()[0]
             if selected_dir not in self.project_roots:
                 self.project_roots.append(selected_dir)
-                self.refresh_project_views()
+                self.update_project_list()
+                self.refresh_all_scripts()
                 self.statusBar().showMessage(f"Proyecto '{os.path.basename(selected_dir)}' agregado.", 5000)
 
-    def rebuild_file_tree_root(self):
-        """
-        Busca el ancestro común de todas las carpetas de proyecto y lo establece como raíz.
-        Esto permite mostrar múltiples proyectos en el mismo árbol.
-        """
-        if not self.project_roots:
-            self.file_model.setRootPath(self.default_scripts_dir)
-            self.file_tree.setRootIndex(self.file_model.index(self.default_scripts_dir))
+    @Slot(QPointF)
+    def on_project_list_context_menu(self, point):
+        """Muestra un menú contextual al hacer clic derecho en la lista de proyectos."""
+        item = self.project_list_widget.itemAt(point)
+        if not item:
+            return
+
+        path = item.data(Qt.UserRole)
+        # Prevenir eliminar el directorio de scripts por defecto
+        if path == self.default_scripts_dir:
             return
             
-        common_ancestor = Path(os.path.commonpath(self.project_roots))
-        self.file_model.setRootPath(str(common_ancestor))
-        self.file_tree.setRootIndex(self.file_model.index(str(common_ancestor)))
-        # Expande los directorios para que los proyectos añadidos sean visibles
-        for path in self.project_roots:
-            self.file_tree.setExpanded(self.file_model.index(path), True)
+        menu = QMenu(self)
+        remove_action = QAction("Quitar Proyecto", self)
+        remove_action.triggered.connect(lambda: self.on_remove_project(path))
+        menu.addAction(remove_action)
+        menu.exec(self.project_list_widget.mapToGlobal(point))
 
-    def refresh_project_views(self):
+    def on_remove_project(self, path):
         """
-        Nueva función centralizada para refrescar el registro, el grafo y la UI.
+        Quita un proyecto de la lista y actualiza la interfaz.
         """
-        self.rebuild_file_tree_root()
+        reply = QMessageBox.question(self, "Confirmar Eliminación",
+                                     f"¿Estás seguro de que quieres quitar el proyecto '{os.path.basename(path)}'?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            if path in self.project_roots:
+                self.project_roots.remove(path)
+                self.update_project_list()
+                self.refresh_all_scripts()
+                self.statusBar().showMessage(f"Proyecto '{os.path.basename(path)}' quitado.", 5000)
+
+    def update_project_list(self):
+        """
+        Llena el widget de lista de proyectos con las carpetas actuales.
+        """
+        self.project_list_widget.clear()
+        for root in self.project_roots:
+            item = QListWidgetItem(os.path.basename(root))
+            item.setData(Qt.UserRole, root)
+            self.project_list_widget.addItem(item)
         
-        # CORRECCIÓN: Vaciar y reconstruir el registro desde todas las raíces
-        new_registry = {}
-        for project_dir in self.project_roots:
-            new_registry.update(discover_scripts(project_dir))
+        # Selecciona el primer elemento por defecto si existe
+        if self.project_list_widget.count() > 0:
+            self.project_list_widget.setCurrentRow(0)
 
-        self.registry = new_registry
-        self.state_manager = StateManager(self.registry)
+    @Slot(QListWidgetItem)
+    def on_project_selected(self, current_item: QListWidgetItem):
+        """
+        Maneja la selección en la lista de proyectos, actualizando el árbol de archivos.
+        """
+        if current_item:
+            project_path = current_item.data(Qt.UserRole)
+            self.file_model.setRootPath(project_path)
+            self.file_tree_view.setRootIndex(self.file_model.index(project_path))
+            self.refresh_all_scripts()
+        else:
+            self.file_tree_view.setRootIndex(self.file_model.index(""))
+
+    def refresh_all_scripts(self):
+        """
+        Descubre todos los scripts de todos los proyectos y reconstruye el grafo.
+        """
+        self.registry = {}
+        for project_dir in self.project_roots:
+            self.registry.update(discover_scripts(project_dir))
+
+        self.state_manager.registry = self.registry
         self.state_manager.graph = self.build_dependency_graph()
         self.build_graph_view()
-        self.update_toolbar_state()
         self.update_variables_list()
         self.statusBar().showMessage("Proyectos recargados y vista actualizada.", 5000)
 
     def on_python_path_changed(self, text):
-        """Actualiza la ruta del ejecutable de Python del ScriptRunner."""
+        """Actualiza la ruta del ejecutable de Python para ScriptRunner."""
         self.runner.python_executable = text
 
     def on_file_tree_selection(self, index):
-        """Slot que se activa al seleccionar un archivo en el explorador."""
+        """Slot que se activa al seleccionar un archivo en el árbol de archivos."""
         path = self.file_model.filePath(index)
         if path.endswith(".py"):
             self.selected_script_path = path
@@ -673,7 +705,7 @@ class MainWindow(QMainWindow):
         self.update_toolbar_state()
 
     def highlight_graph_node(self, path):
-        """Destaca un nodo en el grafo cuando se selecciona en el árbol."""
+        """Resalta un nodo en el grafo al seleccionarlo en el árbol."""
         if path in self.graph_view.nodes:
             node = self.graph_view.nodes[path]
             self.graph_view.scene.clearSelection()
@@ -686,7 +718,6 @@ class MainWindow(QMainWindow):
         self.run_action.setEnabled(is_script_selected)
         self.run_partial_action.setEnabled(is_script_selected)
         self.schedule_action.setEnabled(is_script_selected)
-
 
     def on_variable_selection(self, current_item):
         """Slot para manejar la selección de variables en la lista."""
@@ -743,7 +774,7 @@ class MainWindow(QMainWindow):
         self.graph_view.clear()
         self.graph = self.state_manager.graph
         if not self.graph.nodes:
-            self.code_editor.setPlainText("No hay scripts en el directorio. Usa 'Abrir Proyecto' o 'Agregar Proyecto' para cargar.")
+            self.code_editor.setPlainText("No hay scripts en el directorio. Usa 'Agregar Proyecto' para cargar.")
             return
 
         pos = nx.spring_layout(self.graph, seed=42, k=0.5, iterations=50)
@@ -777,24 +808,24 @@ class MainWindow(QMainWindow):
             self.graph_view.add_edge(u, v)
 
     def on_run_script_from_node(self, path, force_run=False):
-        """Ejecuta un script haciendo clic derecho en el nodo del grafo."""
+        """Ejecuta un script al hacer clic derecho en el nodo del grafo."""
         self.statusBar().showMessage(f"Iniciando ejecución de {os.path.basename(path)}...", 5000)
         self.state_manager.check_dependencies_and_run(path, self.runner, self, stop_at_produces=False, force_run=force_run)
     
     def on_run_partial_script_from_node(self, path):
-        """Ejecuta un script parcialmente haciendo clic derecho en el nodo del grafo."""
+        """Ejecuta parcialmente un script al hacer clic derecho en el nodo del grafo."""
         self.statusBar().showMessage(f"Iniciando ejecución parcial de {os.path.basename(path)}...", 5000)
         self.state_manager.check_dependencies_and_run(path, self.runner, self, stop_at_produces=True)
 
     def on_run_selected(self):
-        """Maneja el evento de correr el script seleccionado."""
+        """Maneja la ejecución del script seleccionado."""
         if self.selected_script_path:
             self.on_run_script_from_node(self.selected_script_path)
         else:
             QMessageBox.warning(self, "No script found", "Selecciona un script válido de la lista.")
 
     def on_run_partial_selected(self):
-        """Maneja el evento de correr el script seleccionado de forma parcial."""
+        """Maneja la ejecución parcial del script seleccionado."""
         if self.selected_script_path:
             self.on_run_partial_script_from_node(self.selected_script_path)
         else:
@@ -811,7 +842,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str, str)
     def handle_script_state_change(self, script_path: str, state: str):
-        """Slot para actualizar el estado visual de un nodo en el grafo."""
+        """Slot para actualizar el estado visual de un nodo del grafo."""
         node = self.graph_view.nodes.get(script_path)
         if node:
             node.set_state(state)
@@ -819,7 +850,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Estado de {os.path.basename(script_path)}: {state}", 5000)
 
     def update_variables_list(self):
-        """Actualiza la lista de variables persistidas en la UI."""
+        """Actualiza la lista de variables persistidas en la interfaz."""
         self.variables_list.clear()
         if not self.state_manager.data:
             self.variables_list.addItem("No hay variables en memoria.")
@@ -831,7 +862,7 @@ class MainWindow(QMainWindow):
             self.variables_list.addItem(item_text)
 
     def view_variables(self, path):
-        """Muestra una ventana de diálogo con las variables producidas y requeridas."""
+        """Muestra un diálogo con las variables producidas y requeridas."""
         meta = self.registry.get(path)
         if not meta:
             QMessageBox.warning(self, "No encontrado", "No se encontró información del script.")
@@ -854,24 +885,20 @@ class MainWindow(QMainWindow):
         self.on_schedule_script(self.selected_script_path)
 
     def on_schedule_script(self, script_path):
-        """Maneja la programación de un script."""
+        """Maneja la programación de scripts."""
         dialog = SchedulerDialog(list(self.registry.keys()), self)
         
-        # Seleccionar el script actual en el diálogo
         dialog.script_combo.setCurrentText(os.path.basename(script_path))
 
         if dialog.exec():
             frequency = dialog.frequency_combo.currentText()
             time_str = dialog.time_edit.time().toString("hh:mm")
-            retry_interval = int(dialog.retry_interval_input.text() or 0)
             
             schedule_config = {
                 "script_path": script_path,
                 "frequency": frequency,
                 "time": time_str,
-                "retry_interval": retry_interval,
-                "last_run": None,
-                "last_success": None
+                "last_run": None
             }
 
             if frequency == "Semanal":
@@ -903,7 +930,6 @@ class MainWindow(QMainWindow):
     def run_scheduled_scripts(self):
         """Verifica y ejecuta los scripts programados."""
         now = QTime.currentTime()
-        now_dt = QDateTime.currentDateTime()
         now_str = now.toString("hh:mm")
         current_day = QDate.currentDate().dayOfWeek() # 1=Lunes, 7=Domingo
         days_of_week = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
@@ -911,41 +937,33 @@ class MainWindow(QMainWindow):
         for script_config in self.scheduled_scripts:
             script_path = script_config.get("script_path")
             frequency = script_config.get("frequency")
-            last_run_str = script_config.get("last_run")
-            retry_interval = script_config.get("retry_interval", 0)
-            
-            should_run = False
             
             if frequency == "Diario" and script_config.get("time") == now_str:
-                should_run = True
-            
+                self.state_manager.check_dependencies_and_run(script_path, self.runner, self)
+                script_config["last_run"] = QDateTime.currentDateTime().toString(Qt.ISODate)
+
             elif frequency == "Semanal" and script_config.get("time") == now_str:
                 if days_of_week[current_day - 1] in script_config.get("days", []):
-                    should_run = True
+                    self.state_manager.check_dependencies_and_run(script_path, self.runner, self)
+                    script_config["last_run"] = QDateTime.currentDateTime().toString(Qt.ISODate)
             
             elif frequency == "Cada X horas":
                 hours_interval = script_config.get("hours_interval")
-                if not last_run_str:
-                    should_run = True
-                else:
-                    last_run_dt = QDateTime.fromString(last_run_str, Qt.ISODate)
-                    if last_run_dt.addSecs(hours_interval * 3600) <= now_dt:
-                        should_run = True
-            
-            # Lógica de reintento en caso de fallo
-            if not should_run and retry_interval > 0 and last_run_str:
-                last_run_dt = QDateTime.fromString(last_run_str, Qt.ISODate)
-                last_success_str = script_config.get("last_success")
+                last_run_str = script_config.get("last_run")
                 
-                # Solo reintentar si la última ejecución no fue exitosa
-                if not last_success_str or QDateTime.fromString(last_success_str, Qt.ISODate) < last_run_dt:
-                    if last_run_dt.addSecs(retry_interval * 60) <= now_dt:
-                        should_run = True
-            
-            if should_run:
-                self.state_manager.check_dependencies_and_run(script_path, self.runner, self)
-                script_config["last_run"] = now_dt.toString(Qt.ISODate)
-                # Opcional: Podrías añadir un mecanismo para actualizar 'last_success'
-                # en tu handle_script_state_change si el estado es 'finished'.
+                if not last_run_str:
+                    self.state_manager.check_dependencies_and_run(script_path, self.runner, self)
+                    script_config["last_run"] = QDateTime.currentDateTime().toString(Qt.ISODate)
+                else:
+                    last_run_time = QDateTime.fromString(last_run_str, Qt.ISODate)
+                    if last_run_time.addSecs(hours_interval * 3600) <= QDateTime.currentDateTime():
+                        self.state_manager.check_dependencies_and_run(script_path, self.runner, self)
+                        script_config["last_run"] = QDateTime.currentDateTime().toString(Qt.ISODate)
 
         self.save_scheduled_scripts()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())

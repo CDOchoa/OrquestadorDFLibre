@@ -1,129 +1,145 @@
+import pandas as pd
+import pickle
 import os
 import networkx as nx
-import re
-from typing import Dict, Any
+import importlib.util
 
 class StateManager:
-    """
-    Gestiona el estado de las variables y el grafo de dependencias de los scripts.
-    """
-    def __init__(self, registry: Dict[str, Dict[str, Any]]):
+    def __init__(self, registry):
         self.registry = registry
-        self.data: Dict[str, Any] = {}
-        self.variable_sources: Dict[str, str] = {}
-        self.script_states: Dict[str, str] = {path: 'idle' for path in registry.keys()}
-        self.graph = self._build_dependency_graph()
-
-    def _build_dependency_graph(self):
-        """
-        Construye el grafo de dependencias de scripts.
-        """
-        G = nx.DiGraph()
-        for path, meta in self.registry.items():
-            G.add_node(path, name=os.path.basename(path), produces=meta["produces"], requires=meta["requires"])
-
-        # Crear un mapa de qué script produce cada variable
-        var_producers = {}
-        for path, meta in self.registry.items():
-            for var in meta["produces"]:
-                var_producers.setdefault(var, []).append(path)
-
-        # Añadir aristas al grafo basándose en las dependencias de las variables
-        for path, meta in self.registry.items():
-            consumer_path = path
-            for var in meta["requires"]:
-                producers = var_producers.get(var, [])
-                for p_path in producers:
-                    G.add_edge(p_path, consumer_path, var=var)
+        self.data = self.load_state_data()
+        self.script_states = {}
+        self.graph = nx.DiGraph()
         
-        return G
+        self.update_states_from_registry()
 
-    def get_missing_dependencies(self, script_path: str) -> list:
-        """
-        Devuelve una lista de variables requeridas que no están en el estado actual.
-        """
-        meta = self.registry.get(script_path)
-        if not meta:
-            return []
+    def update_states_from_registry(self):
+        """Inicializa y actualiza el diccionario script_states basado en el registro."""
+        for path in self.registry.keys():
+            if path not in self.script_states:
+                self.script_states[path] = 'idle'
         
-        missing_vars = [var for var in meta["requires"] if var not in self.data]
-        return missing_vars
+        paths_to_remove = [path for path in self.script_states.keys() if path not in self.registry]
+        for path in paths_to_remove:
+            del self.script_states[path]
 
     def reset_state(self):
-        """
-        Reinicia el estado de todas las variables y scripts.
-        """
+        """Reinicia el estado de todos los scripts y limpia las variables almacenadas."""
         self.data.clear()
-        self.variable_sources.clear()
         for path in self.script_states:
             self.script_states[path] = 'idle'
+        self.save_state_data()
+    
+    def get_source_script(self, var_name):
+        """Encuentra el script que produjo una variable dada."""
+        for path, meta in self.registry.items():
+            if var_name in meta["produces"]:
+                return path
+        return None
 
-    def get_source_script(self, var_name: str) -> str:
+    def load_state_data(self):
+        """Carga las variables persistidas desde un archivo."""
+        if os.path.exists("state.pkl"):
+            try:
+                with open("state.pkl", "rb") as f:
+                    return pickle.load(f)
+            except (IOError, pickle.PickleError):
+                print("Error al cargar el archivo de estado. Se inicia con estado vacío.")
+                return {}
+        return {}
+
+    def save_state_data(self):
+        """Guarda las variables actuales en un archivo."""
+        try:
+            with open("state.pkl", "wb") as f:
+                pickle.dump(self.data, f)
+        except IOError:
+            print("Error al guardar el archivo de estado.")
+
+    def run_script_with_dependencies(self, script_path, runner, main_window, stop_at_produces, force_run=False):
         """
-        Devuelve el path del script que produjo una variable.
+        Ejecuta un script y sus dependencias de forma recursiva.
         """
-        return self.variable_sources.get(var_name, "Desconocido")
-    
-    def check_dependencies_and_run(self, script_path, runner, main_window, stop_at_produces=False, force_run=False):
-        """
-        Verifica las dependencias y ejecuta el script si se cumplen.
-        """
-        missing_dependencies = self.get_missing_dependencies(script_path)
+        if self.script_states[script_path] in ['finished', 'partial_finished'] and not force_run:
+            print(f"Saltando {os.path.basename(script_path)}, ya se ejecutó.")
+            return
+
+        for pred_path in self.graph.predecessors(script_path):
+            if pred_path in self.script_states:
+                self.run_script_with_dependencies(pred_path, runner, main_window, False)
         
-        if missing_dependencies and not force_run:
-            main_window.statusBar().showMessage(f"Faltan variables para '{os.path.basename(script_path)}': {missing_dependencies}. Buscando scripts...", 5000)
-            
-            # Buscar scripts que puedan producir las variables faltantes
-            runnable_dependencies = []
-            for pred_path, _, data in self.graph.in_edges(script_path, data=True):
-                if data['var'] in missing_dependencies and self.script_states[pred_path] == 'idle':
-                    runnable_dependencies.append(pred_path)
-            
-            if runnable_dependencies:
-                for pred_path in runnable_dependencies:
-                    # Ejecutar recursivamente los predecesores
-                    self.check_dependencies_and_run(pred_path, runner, main_window)
-            else:
-                main_window.statusBar().showMessage(f"No se encontraron scripts para resolver todas las dependencias.", 5000)
-                main_window.scriptStateChanged.emit(script_path, 'error')
-                return
-        
-        # Si no hay dependencias faltantes o se fuerza la ejecución, correr el script actual
-        self._run_script_internal(script_path, runner, main_window, stop_at_produces)
-    
-    def _run_script_internal(self, script_path, runner, main_window, stop_at_produces):
-        """
-        Lógica interna para ejecutar un solo script.
-        """
-        main_window.scriptStateChanged.emit(script_path, 'running')
-        
-        script_name = os.path.basename(script_path)
-        print(f"Iniciando ejecución de '{script_name}'...")
-        
-        input_vars = {var: self.data[var] for var in self.registry[script_path]["requires"] if var in self.data}
-        
-        # CORRECCIÓN: Pasar el argumento correcto
-        produced_data, output, error = runner.run_script(script_path, input_vars, stop_at_produces=stop_at_produces)
-        
-        print(f"--- Script '{script_name}' Output ---")
-        print(output)
-        
-        if error:
-            print(f"--- ERROR en '{script_name}' ---")
-            print(error)
-            print(f"No se pudo ejecutar el script '{script_name}'. Deteniendo la cadena de ejecución.")
+        required_vars = self.registry[script_path].get("requires", [])
+        missing_vars = [var for var in required_vars if var not in self.data]
+        if missing_vars:
+            print(f"Faltan variables para {os.path.basename(script_path)}: {', '.join(missing_vars)}")
             main_window.scriptStateChanged.emit(script_path, 'error')
             return
-        
-        for var_name, var_value in produced_data.items():
-            self.data[var_name] = var_value
-            self.variable_sources[var_name] = script_path
-        
-        # Verificar si la ejecución se detuvo parcialmente
-        if "ORCHESTRATOR_PARTIAL_STOP" in output:
-            print(f"--- Ejecución parcial de '{script_name}' finalizada. Se cargaron variables en memoria. ---")
-            main_window.scriptStateChanged.emit(script_path, 'partial_finished')
-        else:
-            print(f"--- Script '{script_name}' ejecutado con éxito. ---")
-            main_window.scriptStateChanged.emit(script_path, 'finished')
 
+        print(f"Ejecutando {os.path.basename(script_path)}...")
+        main_window.scriptStateChanged.emit(script_path, 'running')
+        
+        try:
+            # Ya no dependemos de que runner devuelva un diccionario.
+            # Gestionamos la ejecución y captura de variables aquí.
+            
+            # Crear un espacio de nombres para las variables del script.
+            # No es estrictamente necesario, pero es buena práctica.
+            script_namespace = {}
+            
+            # Cargar el código del script
+            with open(script_path, 'r', encoding='utf-8') as f:
+                script_code = f.read()
+
+            # Inyectar las variables requeridas en el espacio de nombres del script
+            for var_name in required_vars:
+                if var_name in self.data:
+                    script_namespace[var_name] = self.data[var_name]
+
+            # Ejecutar el código del script dentro del nuevo espacio de nombres
+            exec(script_code, script_namespace)
+            
+            # Capturar las variables producidas por nombre desde el espacio de nombres del script
+            produced_vars = {}
+            for var_name in self.registry[script_path].get("produces", []):
+                if var_name in script_namespace:
+                    produced_vars[var_name] = script_namespace[var_name]
+                else:
+                    raise NameError(f"La variable '{var_name}' no se encontró en el script '{os.path.basename(script_path)}'.")
+            
+            self.data.update(produced_vars)
+            self.save_state_data()
+            
+            if stop_at_produces:
+                self.script_states[script_path] = 'partial_finished'
+                print(f"Ejecución parcial de {os.path.basename(script_path)} finalizada, variables cargadas.")
+            else:
+                self.script_states[script_path] = 'finished'
+                print(f"{os.path.basename(script_path)} finalizó correctamente.")
+            
+            main_window.scriptStateChanged.emit(script_path, self.script_states[script_path])
+        
+        except Exception as e:
+            print(f"Error ejecutando {os.path.basename(script_path)}: {e}")
+            self.script_states[script_path] = 'error'
+            main_window.scriptStateChanged.emit(script_path, 'error')
+
+    def check_dependencies_and_run(self, script_path, runner, main_window, stop_at_produces=False, force_run=False):
+        """
+        Punto de entrada inicial para ejecutar un script, verificando las dependencias
+        antes de iniciar el proceso recursivo.
+        """
+        self.update_states_from_registry()
+
+        script_graph = self.graph.subgraph(nx.ancestors(self.graph, script_path) | {script_path})
+        
+        missing_dependencies = set()
+        for u, v, data in script_graph.edges(data=True):
+            if self.script_states[u] not in ['finished', 'partial_finished']:
+                missing_dependencies.add(data['var'])
+        
+        if missing_dependencies:
+            for pred_path in self.graph.predecessors(script_path):
+                if pred_path in self.script_states and self.script_states[pred_path] == 'idle':
+                    self.run_script_with_dependencies(pred_path, runner, main_window, False)
+        
+        self.run_script_with_dependencies(script_path, runner, main_window, stop_at_produces, force_run)
